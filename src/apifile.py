@@ -1,13 +1,44 @@
+from pydantic import BaseModel
 from requests import Session
 from src.db import Document, DocumentText
 from fastapi import APIRouter, HTTPException, File, UploadFile
 import os
 from datetime import datetime
-from celery import Celery
+from src.main import app
+from celery_worker import process_document
 
 router = APIRouter()
 
-@router.post("/upload_doc")
+
+class DocumentTextSchema(BaseModel):
+    id: int
+    id_doc: int
+    text: str
+
+    class Config:
+        orm_mode = True
+
+@app.get("/get_text/{doc_id}", response_model=DocumentTextSchema, summary="Retrieve document text",
+         description="Returns the extracted text of a given document by its ID.")
+async def get_text(doc_id: int):
+    doc_text = Session.query(DocumentText).filter(DocumentText.id_doc == doc_id).first()
+    if doc_text:
+        return doc_text
+    else:
+        raise HTTPException(status_code=404, detail="Text not found")
+
+
+
+@app.get("/get_text/{doc_id}", response_model=DocumentTextSchema)
+async def get_text(doc_id: int):
+        doc_text = Session.query(DocumentText).filter(DocumentText.id_doc == doc_id).first()
+        if doc_text:
+            return doc_text
+        else:
+            raise HTTPException(status_code=404, detail="Text not found")
+
+
+@app.post("/upload_doc")
 async def upload_doc(file: UploadFile = File(...)):
     contents = await file.read()
     file_path = f"/home/reedieboi/Docs/{file.filename}"
@@ -20,7 +51,7 @@ async def upload_doc(file: UploadFile = File(...)):
 
 app.include_router(router)
 
-@router.delete("/doc_delete/{doc_id}")
+@app.delete("/doc_delete/{doc_id}")
 async def doc_delete(doc_id: int):
     doc = Session.get(Document, doc_id)
     if not doc:
@@ -31,17 +62,9 @@ async def doc_delete(doc_id: int):
     Session.commit()
     return {"message": "Document deleted"}
 
-celery_app = Celery("tasks", broker="pyamqp://guest@localhost//")
 
-@router.post("/doc_analyse/{doc_id}")
+
+@app.post("/doc_analyse/{doc_id}")
 async def doc_analyse(doc_id: int):
-    task = celery_app.send_task('analyse_document', args=[doc_id])
-    return {"task_id": task.id}
-
-@celery_app.task
-def analyse_document(doc_id):
-    doc = Session.get(Document, doc_id)
-    text = tesseract_extract_text(doc.psth)  # Вы должны определить эту функцию
-    new_text = DocumentText(id_doc=doc_id, text=text)
-    Session.add(new_text)
-    Session.commit()
+    result = process_document.delay(doc_id)
+    return {"message": "Processing started", "task_id": result.task_id}

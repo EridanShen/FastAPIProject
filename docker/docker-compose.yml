@@ -5,9 +5,24 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
-  rabbitmq:
+      - ./app:/code/app
+    depends_on:
+      - db
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+  rabbit:
     image: "rabbitmq:3-management"
     ports:
-      - "5672:5672"
       - "15672:15672"
+      - "5672:5672"
+  worker:
+    build: .
+    command: celery -A app.worker.celery_worker worker --loglevel=info
+    depends_on:
+      - web
+      - rabbit
+
