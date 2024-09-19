@@ -68,3 +68,4 @@ async def doc_delete(doc_id: int):
 async def doc_analyse(doc_id: int):
     result = process_document.delay(doc_id)
     return {"message": "Processing started", "task_id": result.task_id}
+1
